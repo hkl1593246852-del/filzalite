@@ -3,7 +3,7 @@ import AirliftFFI
 
 /// 驱动 RPPairing 主机：申请本地网络权限、Bonjour 广播、等用户在设置里确认 PIN。
 @MainActor
-final class PairingController: ObservableObject {
+final class PairingController: NSObject, ObservableObject {
 
     static let shared = PairingController()
 
@@ -18,6 +18,12 @@ final class PairingController: ObservableObject {
     @Published private(set) var running = false
     @Published var pairingStatus: String = "待配对"
     @Published var pairingPIN: String? = nil
+
+    // 诊断
+    @Published var hostReady = false          // al_pairing_run_host 的 ready 回调是否触发
+    @Published var publishState = "未发布"      // Bonjour 发布状态
+    @Published var lastError = ""
+    @Published var serviceIDShown = ""
 
     static var customPairingFilePath: String? = nil
     private static let altIRKKey = "filzalitePairingHostAltIRK"
@@ -64,13 +70,17 @@ final class PairingController: ObservableObject {
         keepAlive.stopAll()
         running = true
         pairingPIN = nil
-        pairingStatus = "启动本机配对服务…"
+        hostReady = false
+        publishState = "准备中"
+        lastError = ""
+        pairingStatus = "申请本地网络权限…"
 
         Task {
-            _ = await localNetwork.request()
+            let ok = await localNetwork.request()
+            LogBus.shared.append("[pair] 本地网络探测返回 \(ok)")
             guard running else { return }
             keepAlive.startAudio()
-            pairingStatus = "广播中：去 设置 › 隐私与安全 › 开发者模式 配对"
+            pairingStatus = "启动配对主机…"
             runHost()
         }
     }
@@ -137,6 +147,7 @@ final class PairingController: ObservableObject {
             let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
             if size == 0 {
                 pairingStatus = "失败：配对文件为空"
+                lastError = "配对文件 0 字节"
                 resolve(.failure(NSError(domain: "filzalite", code: 1,
                                          userInfo: [NSLocalizedDescriptionKey: "配对文件为空"])))
             } else {
@@ -147,6 +158,7 @@ final class PairingController: ObservableObject {
             }
         case let .failure(message):
             pairingStatus = "失败：\(message)"
+            lastError = message
             resolve(.failure(NSError(domain: "filzalite", code: 2,
                                      userInfo: [NSLocalizedDescriptionKey: message])))
         }
@@ -156,12 +168,17 @@ final class PairingController: ObservableObject {
 
     fileprivate func startAdvertising(serviceID: String, port: Int32, txt: [String: Data]) {
         stopAdvertising()
+        hostReady = true
+        serviceIDShown = serviceID
         let service = NetService(domain: "", type: "_remotepairing-pairable-host._tcp.",
                                  name: serviceID, port: port)
+        service.delegate = self
         service.setTXTRecord(NetService.data(fromTXTRecord: txt))
         service.publish()
         netService = service
+        publishState = "发布中… name=\(serviceID) port=\(port) txt=\(txt.count) 项"
         pairingStatus = "广播中 — 打开 设置 › 隐私与安全 › 开发者模式"
+        LogBus.shared.append("[pair] 广播 service=\(serviceID) port=\(port) txtKeys=\(txt.keys.joined(separator: ","))")
     }
 
     fileprivate func presentPin(_ pin: String) {
@@ -170,8 +187,33 @@ final class PairingController: ObservableObject {
     }
 
     private func stopAdvertising() {
+        netService?.delegate = nil
         netService?.stop()
         netService = nil
+    }
+}
+
+extension PairingController: NetServiceDelegate {
+    nonisolated func netServiceDidPublish(_ sender: NetService) {
+        Task { @MainActor in
+            self.publishState = "✅ 已发布 \(sender.name) :\(sender.port)"
+            self.pairingStatus = "已广播 — 去 设置 › 隐私与安全 › 开发者模式 看配对项"
+            LogBus.shared.append("[pair] netServiceDidPublish \(sender.name)")
+        }
+    }
+
+    nonisolated func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
+        Task { @MainActor in
+            self.publishState = "❌ 发布失败"
+            self.lastError = "\(errorDict)"
+            LogBus.shared.append("[pair] didNotPublish \(errorDict)")
+        }
+    }
+
+    nonisolated func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
+        Task { @MainActor in
+            LogBus.shared.append("[pair] didNotResolve \(errorDict)")
+        }
     }
 }
 
