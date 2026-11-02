@@ -16,15 +16,13 @@ targets:
       - framework: vendor/AirCard/AirliftFFI.xcframework
         embed: false
         link: true
-    info:
-      path: Sources/Info.plist
-      properties:
-        CFBundleDisplayName: FilzaLite
-        CFBundleShortVersionString: "0.1"
-        CFBundleVersion: "1"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.research.filzalite
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_IDENTITY: ""
+        INFOPLIST_FILE: Sources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.3"
+        CURRENT_PROJECT_VERSION: "3"
