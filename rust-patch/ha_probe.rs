@@ -1,8 +1,5 @@
-// FilzaLite: house_arrest 探测 —— 追加到 rust-core/src/exploit.rs 末尾
-//
-// 思路：com.apple.mobile.house_arrest 按「配对信任」授权，而不是 App 签名身份。
-// 我们持有合法自配对隧道，因此直接问它要某个 App 的容器。
-// 第一枪只验证「授权是否通过」：发 VendDocuments，看回包里 Status。
+// FilzaLite: house_arrest 探测 v2 —— 三变体一次跑完
+// 追加到 rust-core/src/exploit.rs 末尾
 
 pub unsafe fn ha_probe(
     pairing_path: *const c_char,
@@ -21,18 +18,50 @@ pub unsafe fn ha_probe(
     });
 
     match res {
-        Ok(Ok(msg)) => {
-            if !out_error.is_null() { *out_error = cstr(msg); }
-            0
-        }
-        Ok(Err(e)) => {
-            if !out_error.is_null() { *out_error = cstr(e); }
-            1
-        }
-        Err(p) => {
-            if !out_error.is_null() { *out_error = cstr(p); }
-            1
-        }
+        Ok(Ok(msg)) => { if !out_error.is_null() { *out_error = cstr(msg); } 0 }
+        Ok(Err(e))   => { if !out_error.is_null() { *out_error = cstr(e); } 1 }
+        Err(p)       => { if !out_error.is_null() { *out_error = cstr(p); } 1 }
+    }
+}
+
+async fn ha_probe_one(
+    tunnel: &mut AppDeviceTunnel,
+    cmd: &str,
+    bundle: &str,
+    extra_client: bool,
+    logger: &Logger,
+) -> String {
+    let svc = "com.apple.mobile.house_arrest";
+    let mut s = match tunnel.connect_service(svc, logger).await {
+        Ok(x) => x,
+        Err(e) => return format!("[{cmd}] connect failed: {e}"),
+    };
+
+    let mut d = plist::Dictionary::new();
+    d.insert("Command".into(), plist::Value::String(cmd.into()));
+    d.insert("Identifier".into(), plist::Value::String(bundle.into()));
+    if extra_client {
+        d.insert("Client".into(), plist::Value::String("FilzaLite".into()));
+    }
+    let mut buf = Vec::new();
+    if plist::to_writer_binary(&mut buf, &plist::Value::Dictionary(d)).is_err() {
+        return format!("[{cmd}] encode failed");
+    }
+
+    if s.write_all(&(buf.len() as u32).to_be_bytes()).await.is_err() { return format!("[{cmd}] write len failed"); }
+    if s.write_all(&buf).await.is_err() { return format!("[{cmd}] write body failed"); }
+    if s.flush().await.is_err() { return format!("[{cmd}] flush failed"); }
+
+    let mut lb = [0u8; 4];
+    if s.read_exact(&mut lb).await.is_err() { return format!("[{cmd}] no response"); }
+    let n = u32::from_be_bytes(lb) as usize;
+    if n == 0 || n > 1 << 20 { return format!("[{cmd}] bad length {n}"); }
+    let mut body = vec![0u8; n];
+    if s.read_exact(&mut body).await.is_err() { return format!("[{cmd}] short body"); }
+
+    match plist::Value::from_reader(std::io::Cursor::new(&body)) {
+        Ok(v) => format!("[{cmd}] {v:?}"),
+        Err(_) => format!("[{cmd}] <非 plist {} 字节>", body.len()),
     }
 }
 
@@ -41,47 +70,27 @@ async fn ha_probe_impl(
     bundle_id: String,
     logger: &Logger,
 ) -> Result<String, String> {
-    logger.log(format!("ha: probing house_arrest for {bundle_id}"));
-    let pairing_bytes = std::fs::read(&pairing_path)
-        .map_err(|e| format!("读取配对文件失败: {e}"))?;
+    logger.log(format!("ha: v2 probing {bundle_id}"));
+    let pairing_bytes = std::fs::read(&pairing_path).map_err(|e| format!("读取配对文件失败: {e}"))?;
     let mut tunnel = connect_tunnel(&pairing_bytes, logger).await?;
 
-    let svc = "com.apple.mobile.house_arrest";
-    let mut s = match tunnel.connect_service(svc, logger).await {
-        Ok(x) => x,
-        Err(e) => {
-            logger.log(format!("ha: 连 {svc} 失败: {e}"));
-            return Err(format!("connect_service {svc}: {e}"));
-        }
-    };
-
-    let mut d = plist::Dictionary::new();
-    d.insert("Command".into(), plist::Value::String("VendDocuments".into()));
-    d.insert("Identifier".into(), plist::Value::String(bundle_id));
-    let mut buf = Vec::new();
-    plist::to_writer_binary(&mut buf, &plist::Value::Dictionary(d))
-        .map_err(|e| format!("encode: {e}"))?;
-
-    s.write_all(&(buf.len() as u32).to_be_bytes())
-        .await
-        .map_err(|e| format!("write len: {e}"))?;
-    s.write_all(&buf).await.map_err(|e| format!("write body: {e}"))?;
-    s.flush().await.map_err(|e| format!("flush: {e}"))?;
-    logger.log("ha: VendDocuments 已发送，等回包…");
-
-    let mut lb = [0u8; 4];
-    s.read_exact(&mut lb).await.map_err(|e| format!("read len: {e}"))?;
-    let n = u32::from_be_bytes(lb) as usize;
-    if n == 0 || n > 1 << 20 {
-        return Err(format!("回包长度异常: {n}"));
+    let mut out = Vec::new();
+    for (cmd, client) in [
+        ("VendDocuments", true),
+        ("VendContainer", true),
+        ("VendContainer", false),
+    ] {
+        let r = ha_probe_one(&mut tunnel, cmd, &bundle_id, client, logger).await;
+        logger.log(format!("ha: {r}"));
+        out.push(r);
     }
-    let mut body = vec![0u8; n];
-    s.read_exact(&mut body).await.map_err(|e| format!("read body: {e}"))?;
 
-    let txt = match plist::Value::from_reader(std::io::Cursor::new(&body)) {
-        Ok(v) => format!("{v:?}"),
-        Err(_) => format!("<非 plist, {} 字节>", body.len()),
-    };
-    logger.log(format!("ha: 回包 = {txt}"));
-    Ok(format!("✅ house_arrest 授权通过: {txt}"))
+    let joined = out.join("\n");
+    if joined.contains("Prohibited") {
+        return Err(format!("❌ 被拒（Prohibited）\n{joined}"));
+    }
+    if joined.contains("InstallationLookupFailed") && !joined.contains("Status") {
+        return Err(format!("❌ 全部 InstallationLookupFailed（查库失败）\n{joined}"));
+    }
+    Ok(format!("✅ 有变体通过，检查回包\n{joined}"))
 }
