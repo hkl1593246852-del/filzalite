@@ -1,22 +1,17 @@
 import Foundation
 
-/// ContainerManager 私有 API 参数空间扫描器（带符号诊断）
+/// ContainerManager 参数空间扫描器 —— 全可选调用，不做守卫中止
 final class MCMScan {
 
     typealias FnCreate = @convention(c) () -> OpaquePointer?
     typealias FnSetU64 = @convention(c) (OpaquePointer?, UInt64) -> Void
-    typealias FnSetStr = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Void
     typealias FnSetIDs = @convention(c) (OpaquePointer?, OpaquePointer?) -> Void
     typealias FnSingle = @convention(c) (OpaquePointer?) -> OpaquePointer?
     typealias FnGetPath = @convention(c) (OpaquePointer?) -> UnsafePointer<CChar>?
 
-    private static func find<T>(_ h: UnsafeMutableRawPointer?, _ names: [String], _ t: T.Type) -> (String, T)? {
-        for n in names {
-            if let p = dlsym(h, n) {
-                return (n, unsafeBitCast(p, to: T.self))
-            }
-        }
-        return nil
+    private static func bind<T>(_ h: UnsafeMutableRawPointer, _ n: String, _ t: T.Type) -> T? {
+        guard let p = dlsym(h, n) else { return nil }
+        return unsafeBitCast(p, to: T.self)
     }
 
     private static let flags: [UInt64] = [
@@ -26,70 +21,42 @@ final class MCMScan {
 
     static func run(targetBundle: String, log: @escaping (String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            // 先试显式路径，失败退回已加载镜像
             var h = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW)
             if h == nil { h = dlopen("libsystem_containermanager.dylib", RTLD_NOW) }
             if h == nil { h = dlopen(nil, RTLD_NOW) }
             guard let handle = h else {
-                log("❌ dlopen 失败: \(String(cString: dlerror()))")
-                return
+                log("❌ dlopen 失败"); return
             }
-            log("✅ dlopen 成功 [scanner build v3 · optional set_part]")
+            log("✅ dlopen 成功 [scanner build v4 · no guard]")
 
-            let create: FnCreate? = find(handle, ["container_query_create"], FnCreate.self)?.1
-            log("container_query_create: \(create == nil ? "❌" : "✅")")
+            let create = bind(handle, "container_query_create", FnCreate.self)
+            let setClass = bind(handle, "container_query_set_class", FnSetU64.self)
+            let setFlags = bind(handle, "container_query_set_flags", FnSetU64.self)
+            let setPart = bind(handle, "container_query_set_part", FnSetU64.self)
+            let setIDs = bind(handle, "container_query_set_identifiers", FnSetIDs.self)
+            let single = bind(handle, "container_query_get_single_result", FnSingle.self)
+            let getPath = bind(handle, "container_object_get_path", FnGetPath.self)
 
-            let setClass: FnSetU64? = find(handle, ["container_query_set_class"], FnSetU64.self)?.1
-            log("container_query_set_class: \(setClass == nil ? "❌" : "✅")")
+            log("create=\(create != nil) class=\(setClass != nil) flags=\(setFlags != nil) part=\(setPart != nil) ids=\(setIDs != nil) single=\(single != nil) path=\(getPath != nil)")
 
-            let setFlags: FnSetU64? = find(handle, ["container_query_set_flags"], FnSetU64.self)?.1
-            log("container_query_set_flags: \(setFlags == nil ? "❌" : "✅")")
-
-            let setPart: FnSetU64? = find(handle, ["container_query_set_part"], FnSetU64.self)?.1
-            log("container_query_set_part: \(setPart == nil ? "❌" : "✅")")
-
-            let setIDs: FnSetIDs? = find(handle, ["container_query_set_identifiers"], FnSetIDs.self)?.1
-            log("container_query_set_identifiers: \(setIDs == nil ? "❌" : "✅")")
-
-            let singleHit = find(handle, ["container_query_get_single_result",
-                                          "container_query_get_result",
-                                          "container_query_get_single_object"], FnSingle.self)
-            log("get_single_result: \(singleHit == nil ? "❌" : "✅ (\(singleHit!.0))")")
-
-            let pathHit = find(handle, ["container_object_get_path",
-                                        "container_object_get_absolute_path",
-                                        "container_object_get_url"], FnGetPath.self)
-            log("object_get_path: \(pathHit == nil ? "❌" : "✅ (\(pathHit!.0))")")
-
-            guard let create = create, let setClass = setClass, let setFlags = setFlags,
-                  let setIDs = setIDs,
-                  let single = singleHit?.1, let getPath = pathHit?.1 else {
-                log("⛔️ 符号不全，扫描中止（把上面几行发我）")
-                return
-            }
-            if setPart == nil { log("⚠️ set_part 缺失，跳过 part 维度") }
-
-            log("开始扫描 target=\(targetBundle)")
-            var hits = 0, tried = 0
+            var tried = 0, hits = 0
             for cls in UInt64(0)...20 {
-                for part in UInt64(0)...3 {
-                    for f in flags {
-                        tried += 1
-                        guard let q = create() else { continue }
-                        setClass(q, cls)
-                        setFlags(q, f)
-                        if let sp = setPart { sp(q, part) }
-                        let xp = targetBundle.withCString { xpc_string_create($0) }
-                        setIDs(q, OpaquePointer(Unmanaged.passUnretained(xp as AnyObject).toOpaque()))
-                        guard let obj = single(q), let cp = getPath(obj) else { continue }
-                        let p = String(cString: cp)
-                        if p.isEmpty || p.contains("MobileHouseArrest") { continue }
-                        hits += 1
-                        log("hit class=\(cls) part=\(part) flags=\(String(f, radix: 16)) \(p)")
-                        var isDir: ObjCBool = false
-                        if FileManager.default.fileExists(atPath: p + "/Documents", isDirectory: &isDir) {
-                            log("   ✅ 可访问")
-                        }
+                for f in flags {
+                    tried += 1
+                    guard let q = create?() else { continue }
+                    setClass?(q, cls)
+                    setFlags?(q, f)
+                    setPart?(q, 0)
+                    let xp = targetBundle.withCString { xpc_string_create($0) }
+                    setIDs?(q, OpaquePointer(Unmanaged.passUnretained(xp as AnyObject).toOpaque()))
+
+                    guard let obj = single?(q), let cp = getPath?(obj) else { continue }
+                    let p = String(cString: cp)
+                    if p.isEmpty || p.contains("MobileHouseArrest") { continue }
+                    hits += 1
+                    log("hit class=\(cls) flags=\(String(f, radix: 16)) \(p)")
+                    if FileManager.default.fileExists(atPath: p + "/Documents") {
+                        log("   ✅ 可访问")
                     }
                 }
             }
