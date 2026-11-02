@@ -1,0 +1,32 @@
+name: rust-check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "rust-patch/**"
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone upstream rust-core
+        run: |
+          git clone --depth 1 https://github.com/Mak5er/AirCard-iOS.git upstream
+          ls upstream/rust-core
+
+      - name: Install Rust + iOS target
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-apple-ios
+          rustc --version && cargo --version
+
+      - name: Build rust-core for ios-arm64
+        run: |
+          source "$HOME/.cargo/env"
+          cd upstream/rust-core
+          cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 60
+          ls -lh target/aarch64-apple-ios/release/libairlift_ffi.a || true
