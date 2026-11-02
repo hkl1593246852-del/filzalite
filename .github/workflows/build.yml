@@ -20,6 +20,23 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      - name: Install Rust + iOS target
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-apple-ios
+
+      - name: Rebuild AirliftFFI with al_exploit_pull
+        run: |
+          source "$HOME/.cargo/env"
+          cat rust-patch/exploit_pull.rs >> vendor/AirCard/rust-core/src/exploit.rs
+          cat rust-patch/lib_export.rs  >> vendor/AirCard/rust-core/src/lib.rs
+          cd vendor/AirCard/rust-core
+          cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 30
+          cp target/aarch64-apple-ios/release/libairlift_ffi.a \
+             ../../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
+          ls -lh ../../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
+
       - name: Generate Xcode project
         run: xcodegen generate
 
