@@ -17,6 +17,12 @@ jobs:
           git clone --depth 1 https://github.com/Mak5er/AirCard-iOS.git upstream
           ls upstream/rust-core
 
+      - name: Apply FilzaLite patches
+        run: |
+          cat rust-patch/exploit_pull.rs >> upstream/rust-core/src/exploit.rs
+          cat rust-patch/lib_export.rs  >> upstream/rust-core/src/lib.rs
+          tail -n 5 upstream/rust-core/src/lib.rs
+
       - name: Install Rust + iOS target
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
@@ -28,5 +34,5 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           cd upstream/rust-core
-          cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 60
+          cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 80
           ls -lh target/aarch64-apple-ios/release/libairlift_ffi.a || true
