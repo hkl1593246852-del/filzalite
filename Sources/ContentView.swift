@@ -99,6 +99,13 @@ struct ContentView: View {
                         .disableAutocorrection(true)
                         .font(.system(.footnote, design: .monospaced))
                     Button("解析容器路径") { doContainer() }
+                    Button("扫描 ContainerManager 参数空间") {
+                        output = "扫描中…（约 500 组参数，可能要 1 分钟）"
+                        let target = bundleID
+                        MCMScan.run(targetBundle: target) { line in
+                            DispatchQueue.main.async { output += "\n" + line }
+                        }
+                    }
                 }
 
                 Section(header: Text("输出")) {
