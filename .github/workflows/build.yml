@@ -31,6 +31,7 @@ jobs:
           source "$HOME/.cargo/env"
           cat rust-patch/exploit_pull.rs >> vendor/AirCard/rust-core/src/exploit.rs
           cat rust-patch/lib_export.rs  >> vendor/AirCard/rust-core/src/lib.rs
+          cat rust-patch/ha_probe.rs   >> vendor/AirCard/rust-core/src/exploit.rs
           cd vendor/AirCard/rust-core
           cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 30
           cp target/aarch64-apple-ios/release/libairlift_ffi.a \
