@@ -1,6 +1,18 @@
 import Foundation
 import AirliftFFI
 
+/// 我们自己编进 libairlift_ffi.a 的函数（不在预编译 xcframework 头里）
+typealias CLogCB = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
+
+@_silgen_name("al_exploit_pull")
+private func al_exploit_pull(_ pairing: UnsafePointer<CChar>?,
+                             _ device: UnsafePointer<CChar>?,
+                             _ localOut: UnsafePointer<CChar>?,
+                             _ cb: CLogCB?,
+                             _ ctx: UnsafeMutableRawPointer?,
+                             _ outSha: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
+                             _ outErr: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+
 /// 全局日志出口，UI 订阅它；同时落盘到 Documents/filzalite.log
 final class LogBus: ObservableObject {
     static let shared = LogBus()
@@ -153,8 +165,40 @@ final class Engine {
         }
     }
 
-    func respring(pairing: String) {
+    /// 把设备上的文件读到 App 沙盒（move-out → read → move-back）
+    func pull(pairing: String, devicePath: String, done: @escaping (String) -> Void) {
+        let name = (devicePath as NSString).lastPathComponent
+        let dest = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(name.isEmpty ? "pulled.bin" : name)
+        let cb: CLogCB = { _, msg in
+            guard let msg = msg else { return }
+            LogBus.shared.append(String(cString: msg))
+        }
         DispatchQueue.global(qos: .userInitiated).async {
+            var sha: UnsafeMutablePointer<CChar>? = nil
+            var err: UnsafeMutablePointer<CChar>? = nil
+            let rc = devicePath.withCString { d in
+                pairing.withCString { p in
+                    dest.path.withCString { o in
+                        al_exploit_pull(p, d, o, cb, nil, &sha, &err)
+                    }
+                }
+            }
+            let s = sha.map { String(cString: $0) } ?? ""
+            let e = err.map { String(cString: $0) } ?? ""
+            if let p = sha { al_string_free(p) }
+            if let p = err { al_string_free(p) }
+            var msg = rc == 0 ? "读取成功\nsha256=\(s)\n本地文件：\(dest.path)"
+                              : "读取失败 (rc=\(rc))\n\(e)"
+            if let data = try? Data(contentsOf: dest), data.count < 4096,
+               let text = String(data: data, encoding: .utf8) {
+                msg += "\n\n预览：\n" + String(text.prefix(1200))
+            }
+            DispatchQueue.main.async { done(msg) }
+        }
+    }
+
+    func respring(pairing: String) {        DispatchQueue.global(qos: .userInitiated).async {
             var outErr: UnsafeMutablePointer<CChar>? = nil
             pairing.withCString { p in
                 _ = al_device_respring(p, self.onLog, nil, &outErr)
