@@ -12,9 +12,7 @@ final class LogBus: ObservableObject {
     }()
 
     private let df: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f
     }()
 
     func append(_ s: String) {
@@ -23,12 +21,9 @@ final class LogBus: ObservableObject {
             self.lines.append(line)
             if self.lines.count > 600 { self.lines.removeFirst(200) }
         }
-        // 落盘
         if let data = (line + "\n").data(using: .utf8) {
             if let h = try? FileHandle(forWritingTo: logURL) {
-                h.seekToEndOfFile()
-                h.write(data)
-                try? h.close()
+                h.seekToEndOfFile(); h.write(data); try? h.close()
             } else {
                 try? data.write(to: logURL)
             }
@@ -36,13 +31,44 @@ final class LogBus: ObservableObject {
     }
 
     func text() -> String { lines.joined(separator: "\n") }
-
-    func filePath() -> String { logURL.path }
-
     func clear() {
         lines.removeAll()
         try? FileManager.default.removeItem(at: logURL)
     }
+}
+
+/// 常用 App 的 bundle id
+struct AppTarget: Identifiable, Equatable {
+    let id: String
+    var path: String?
+    var resolved: Bool = false
+
+    static let defaults: [AppTarget] = [
+        AppTarget(id: "com.apple.PosterBoard"),
+        AppTarget(id: "com.apple.mobilesafari"),
+        AppTarget(id: "com.apple.MobileSMS"),
+        AppTarget(id: "com.apple.mobilenotes"),
+        AppTarget(id: "com.apple.Preferences"),
+        AppTarget(id: "com.apple.DocumentsApp"),
+        AppTarget(id: "com.apple.MobileAddressBook"),
+        AppTarget(id: "com.apple.mobilemail"),
+        AppTarget(id: "com.apple.mobilecal"),
+        AppTarget(id: "com.apple.Health"),
+        AppTarget(id: "com.apple.music"),
+        AppTarget(id: "com.apple.AppStore"),
+        AppTarget(id: "com.apple.shortcuts"),
+        AppTarget(id: "com.apple.camera"),
+        AppTarget(id: "com.tencent.xin"),
+        AppTarget(id: "com.tencent.mqq"),
+        AppTarget(id: "com.alipay.iphoneclient"),
+        AppTarget(id: "com.taobao.taobao4iphone"),
+        AppTarget(id: "com.ss.iphone.ugc.Aweme"),
+        AppTarget(id: "com.jingdong.app.mall"),
+        AppTarget(id: "com.sina.weibo"),
+        AppTarget(id: "com.zhihu.ios"),
+        AppTarget(id: "com.netease.cloudmusic"),
+        AppTarget(id: "com.xingin.discover"),
+    ]
 }
 
 /// AirliftFFI 的 Swift 封装
@@ -91,19 +117,39 @@ final class Engine {
         }
     }
 
+    /// 同步版容器解析（内部用）
+    private func containerSync(pairing: String, bundleID: String) -> String? {
+        var outC: UnsafeMutablePointer<CChar>? = nil
+        var outErr: UnsafeMutablePointer<CChar>? = nil
+        let rc = bundleID.withCString { b in
+            pairing.withCString { p in
+                al_find_app_container(p, b, self.onLog, nil, &outC, &outErr)
+            }
+        }
+        let c = outC.map { String(cString: $0) } ?? ""
+        if let p = outC { al_string_free(p) }
+        if let p = outErr { al_string_free(p) }
+        return (rc == 0 && !c.isEmpty) ? c : nil
+    }
+
     func container(pairing: String, bundleID: String, done: @escaping (String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            var outC: UnsafeMutablePointer<CChar>? = nil
-            var outErr: UnsafeMutablePointer<CChar>? = nil
-            let rc = bundleID.withCString { b in
-                pairing.withCString { p in
-                    al_find_app_container(p, b, self.onLog, nil, &outC, &outErr)
-                }
+            let c = self.containerSync(pairing: pairing, bundleID: bundleID)
+            DispatchQueue.main.async { done(c) }
+        }
+    }
+
+    /// 批量解析，逐个回调
+    func resolveAll(pairing: String,
+                    ids: [String],
+                    progress: @escaping (Int, String, String?) -> Void,
+                    done: @escaping () -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for (i, id) in ids.enumerated() {
+                let path = self.containerSync(pairing: pairing, bundleID: id)
+                DispatchQueue.main.async { progress(i, id, path) }
             }
-            let c = outC.map { String(cString: $0) } ?? ""
-            if let p = outC { al_string_free(p) }
-            if let p = outErr { al_string_free(p) }
-            DispatchQueue.main.async { done(rc == 0 && !c.isEmpty ? c : nil) }
+            DispatchQueue.main.async { done() }
         }
     }
 
