@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var targetPath = "/var/mobile/Library/SpringBoard"
     @State private var bundleID = "com.apple.PosterBoard"
     @State private var output = ""
+    @State private var iface = "—"
 
     var body: some View {
         NavigationView {
@@ -24,6 +25,15 @@ struct ContentView: View {
                     if pairingPath != nil {
                         Text("配对文件就绪").foregroundColor(.green).font(.footnote)
                     }
+                }
+
+                Section(header: Text("诊断")) {
+                    Labeled(pairing.hostReady ? "✅ 主机已就绪" : "⏳ 主机未就绪")
+                    Labeled("广播：\(pairing.publishState)")
+                    if !pairing.lastError.isEmpty { Labeled("错误：\(pairing.lastError)") }
+                    if !pairing.serviceIDShown.isEmpty { Labeled("service：\(pairing.serviceIDShown)") }
+                    Labeled("网卡：\(iface)")
+                    Button("刷新网卡") { refreshIfaces() }
                 }
 
                 Section(header: Text("2 · 写任意路径")) {
@@ -60,16 +70,22 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(height: 220)
+                    .frame(height: 200)
                 }
             }
             .navigationTitle("FilzaLite")
-            .onAppear(perform: loadExisting)
+            .onAppear {
+                loadExisting()
+                refreshIfaces()
+            }
         }
         .navigationViewStyle(.stack)
     }
 
-    // MARK: - Actions
+    private func refreshIfaces() {
+        let s = NetworkStatus.summarize(deviceIP: "10.7.0.1")
+        iface = "vpn=\(s.vpn) wifi=\(s.wifi) | \(s.detail)"
+    }
 
     private func loadExisting() {
         let p = PairingController.pairingFilePath()
@@ -82,6 +98,8 @@ struct ContentView: View {
 
     private func doPair() async {
         output = "配对中…"
+        UIApplication.shared.isIdleTimerDisabled = true
+        defer { UIApplication.shared.isIdleTimerDisabled = false }
         do {
             let p = try await pairing.startAndWait()
             pairingPath = p
@@ -102,9 +120,8 @@ struct ContentView: View {
         let dir = Engine.shared.stagingDir()
         let name = "filzalite-probe-\(Int(Date().timeIntervalSince1970)).txt"
         let url = URL(fileURLWithPath: dir).appendingPathComponent(name)
-        let body = "filzalite probe\n\(Date())\n"
         do {
-            try body.write(to: url, atomically: true, encoding: .utf8)
+            try "filzalite probe\n\(Date())\n".write(to: url, atomically: true, encoding: .utf8)
         } catch {
             output = "写本地暂存失败：\(error.localizedDescription)"
             return
@@ -119,5 +136,13 @@ struct ContentView: View {
         Engine.shared.container(pairing: p, bundleID: bundleID) { path in
             output = path ?? "未解析到容器（bundle id 可能不存在）"
         }
+    }
+}
+
+private struct Labeled: View {
+    let text: String
+    init(_ t: String) { text = t }
+    var body: some View {
+        Text(text).font(.system(size: 11, design: .monospaced))
     }
 }
