@@ -34,8 +34,8 @@ jobs:
           cd vendor/AirCard/rust-core
           cargo build --release --target aarch64-apple-ios 2>&1 | tail -n 30
           cp target/aarch64-apple-ios/release/libairlift_ffi.a \
-             ../../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
-          ls -lh ../../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
+             ../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
+          ls -lh ../AirliftFFI.xcframework/ios-arm64/libairlift_ffi.a
 
       - name: Generate Xcode project
         run: xcodegen generate
