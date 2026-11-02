@@ -1,0 +1,50 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch AirliftFFI from upstream
+        run: |
+          git clone --depth 1 https://github.com/Mak5er/AirCard-iOS.git vendor/AirCard
+          ls vendor/AirCard/AirliftFFI.xcframework
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project FilzaLite.xcodeproj -scheme FilzaLite \
+            -sdk iphoneos -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee build.log | tail -n 80
+
+      - name: Package IPA
+        if: success()
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          echo "app=$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qr FilzaLite.ipa Payload
+          ls -lh FilzaLite.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: FilzaLite-ipa
+          path: FilzaLite.ipa
+          if-no-files-found: error
