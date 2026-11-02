@@ -1,8 +1,9 @@
 name: FilzaLite
 options:
   bundleIdPrefix: com.research
+  xcodeVersion: "15.0"
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 
 targets:
