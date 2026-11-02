@@ -1,17 +1,48 @@
 import Foundation
 import AirliftFFI
 
-/// 全局日志出口，UI 订阅它
+/// 全局日志出口，UI 订阅它；同时落盘到 Documents/filzalite.log
 final class LogBus: ObservableObject {
     static let shared = LogBus()
     @Published var lines: [String] = []
+
+    private lazy var logURL: URL = {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("filzalite.log")
+    }()
+
+    private let df: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     func append(_ s: String) {
+        let line = "[\(df.string(from: Date()))] \(s)"
         DispatchQueue.main.async {
-            self.lines.append(s)
-            if self.lines.count > 400 { self.lines.removeFirst(100) }
+            self.lines.append(line)
+            if self.lines.count > 600 { self.lines.removeFirst(200) }
+        }
+        // 落盘
+        if let data = (line + "\n").data(using: .utf8) {
+            if let h = try? FileHandle(forWritingTo: logURL) {
+                h.seekToEndOfFile()
+                h.write(data)
+                try? h.close()
+            } else {
+                try? data.write(to: logURL)
+            }
         }
     }
-    func clear() { lines.removeAll() }
+
+    func text() -> String { lines.joined(separator: "\n") }
+
+    func filePath() -> String { logURL.path }
+
+    func clear() {
+        lines.removeAll()
+        try? FileManager.default.removeItem(at: logURL)
+    }
 }
 
 /// AirliftFFI 的 Swift 封装
@@ -24,7 +55,6 @@ final class Engine {
         LogBus.shared.append(String(cString: msg))
     }
 
-    /// 对任意绝对路径做金丝雀写入校验
     func canary(pairing: String, target: String, done: @escaping (String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             var outJSON: UnsafeMutablePointer<CChar>? = nil
@@ -43,7 +73,6 @@ final class Engine {
         }
     }
 
-    /// 把本地目录里的文件写进设备任意目录
     func writeDir(pairing: String, sourceDir: String, targetDir: String,
                   done: @escaping (String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -62,7 +91,6 @@ final class Engine {
         }
     }
 
-    /// bundle id -> 数据容器路径
     func container(pairing: String, bundleID: String, done: @escaping (String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             var outC: UnsafeMutablePointer<CChar>? = nil
@@ -89,7 +117,6 @@ final class Engine {
         }
     }
 
-    /// 在 App 沙盒里造一个待写入的目录
     func stagingDir() -> String {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("stage")
