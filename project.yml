@@ -15,6 +15,7 @@ targets:
     dependencies:
       - framework: vendor/AirCard/AirliftFFI.xcframework
         embed: false
+        link: true
     info:
       path: Sources/Info.plist
       properties:
@@ -27,10 +28,3 @@ targets:
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_IDENTITY: ""
-        FRAMEWORK_SEARCH_PATHS:
-          - $(inherited)
-          - $(SRCROOT)/vendor/AirCard
-        OTHER_LDFLAGS:
-          - $(inherited)
-          - -framework
-          - AirliftFFI
