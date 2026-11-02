@@ -28,15 +28,23 @@ final class PairingController: NSObject, ObservableObject {
     static var customPairingFilePath: String? = nil
     private static let altIRKKey = "filzalitePairingHostAltIRK"
     nonisolated private static var storedAltIRK: String {
-        get { UserDefaults.standard.string(forKey: altIRKKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: altIRKKey) }
+        get { KeychainStore.getString("altIRK") ?? "" }
+        set { KeychainStore.setString(newValue, for: "altIRK") }
     }
 
     private var pairContinuation: CheckedContinuation<String, Error>?
 
+    /// Documents 里的配对文件；若不存在则尝试从 Keychain 还原（重装后容器 UUID 会变）
     static func pairingFilePath() -> String {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return dir.appendingPathComponent("filzalite_pairing.plist").path
+        let path = dir.appendingPathComponent("filzalite_pairing.plist").path
+        let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+        if size > 0 { return path }
+
+        if let blob = KeychainStore.get("pairingFile"), !blob.isEmpty {
+            try? blob.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+        return path
     }
 
     func startAndWait() async throws -> String {
@@ -152,6 +160,9 @@ final class PairingController: NSObject, ObservableObject {
                                          userInfo: [NSLocalizedDescriptionKey: "配对文件为空"])))
             } else {
                 Self.customPairingFilePath = path
+                if let blob = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                    KeychainStore.set(blob, for: "pairingFile")
+                }
                 pairingStatus = "已配对：\(name)（\(size) B）"
                 LogBus.shared.append("[pair] 配对文件: \(path) (\(size) B)")
                 resolve(.success(path))
