@@ -13,6 +13,13 @@ private func al_exploit_pull(_ pairing: UnsafePointer<CChar>?,
                              _ outSha: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
                              _ outErr: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
 
+@_silgen_name("al_house_arrest_probe")
+private func al_house_arrest_probe(_ pairing: UnsafePointer<CChar>?,
+                                   _ bundle: UnsafePointer<CChar>?,
+                                   _ cb: CLogCB?,
+                                   _ ctx: UnsafeMutableRawPointer?,
+                                   _ outErr: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Int32
+
 /// 全局日志出口，UI 订阅它；同时落盘到 Documents/filzalite.log
 final class LogBus: ObservableObject {
     static let shared = LogBus()
@@ -195,6 +202,27 @@ final class Engine {
                 msg += "\n\n预览：\n" + String(text.prefix(1200))
             }
             DispatchQueue.main.async { done(msg) }
+        }
+    }
+
+    /// 探测 house_arrest 是否按配对信任授权
+    func haProbe(pairing: String, bundleID: String, done: @escaping (String) -> Void) {
+        let cb: CLogCB = { _, msg in
+            guard let msg = msg else { return }
+            LogBus.shared.append(String(cString: msg))
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            var err: UnsafeMutablePointer<CChar>? = nil
+            let rc = bundleID.withCString { b in
+                pairing.withCString { p in
+                    al_house_arrest_probe(p, b, cb, nil, &err)
+                }
+            }
+            let e = err.map { String(cString: $0) } ?? ""
+            if let p = err { al_string_free(p) }
+            DispatchQueue.main.async {
+                done(rc == 0 ? "✅ house_arrest 通过\n\(e)" : "❌ house_arrest 失败 (rc=\(rc))\n\(e)")
+            }
         }
     }
 
