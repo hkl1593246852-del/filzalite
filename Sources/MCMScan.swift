@@ -34,7 +34,7 @@ final class MCMScan {
                 log("❌ dlopen 失败: \(String(cString: dlerror()))")
                 return
             }
-            log("✅ dlopen 成功")
+            log("✅ dlopen 成功 [scanner build v3 · optional set_part]")
 
             let create: FnCreate? = find(handle, ["container_query_create"], FnCreate.self)?.1
             log("container_query_create: \(create == nil ? "❌" : "✅")")
