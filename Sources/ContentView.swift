@@ -37,6 +37,9 @@ struct ContentView: View {
                 }
 
                 Section(header: Text("2 · 写任意路径")) {
+                    Text("前提：先打开一次「图书」App，否则 AirTraffic 会停在 ReadyForSync")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                     TextField("目标目录（绝对路径）", text: $targetPath)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -61,7 +64,17 @@ struct ContentView: View {
                         .font(.system(size: 11, design: .monospaced))
                 }
 
-                Section(header: Text("引擎日志")) {
+                Section(header: HStack {
+                    Text("引擎日志")
+                    Spacer()
+                    Button("复制") {
+                        UIPasteboard.general.string = log.text()
+                    }
+                    .font(.caption)
+                    Button("清空") { log.clear() }
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(Array(log.lines.enumerated()), id: \.offset) { _, line in
