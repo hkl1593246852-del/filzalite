@@ -100,6 +100,7 @@ struct ContentView: View {
                         .font(.system(.footnote, design: .monospaced))
                     Button("解析容器路径") { doContainer() }
                     Button("探测 house_arrest 授权") { doHA() }
+                    Button("读取该 App 的偏好设置") { doReadPrefs() }
                     Button("扫描 ContainerManager 参数空间") {
                         output = "扫描中…（约 500 组参数，可能要 1 分钟）"
                         let target = bundleID
@@ -217,6 +218,18 @@ struct ContentView: View {
         guard let p = pairingPath else { output = "先配对"; return }
         output = "读取中（搬出 → 读 → 搬回）…"
         Engine.shared.pull(pairing: p, devicePath: readPath) { output = $0 }
+    }
+
+    private func doReadPrefs() {
+        guard let p = pairingPath else { output = "先配对"; return }
+        output = "定位 \(bundleID) 容器…"
+        let bid = bundleID
+        Engine.shared.container(pairing: p, bundleID: bid) { c in
+            guard let c = c else { output = "找不到容器"; return }
+            let path = c + "/Library/Preferences/" + bid + ".plist"
+            output = "读取 \(path)…"
+            Engine.shared.pull(pairing: p, devicePath: path) { output = $0 }
+        }
     }
 
     private func doHA() {
