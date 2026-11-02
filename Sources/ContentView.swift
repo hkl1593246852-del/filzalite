@@ -99,6 +99,7 @@ struct ContentView: View {
                         .disableAutocorrection(true)
                         .font(.system(.footnote, design: .monospaced))
                     Button("解析容器路径") { doContainer() }
+                    Button("探测 house_arrest 授权") { doHA() }
                     Button("扫描 ContainerManager 参数空间") {
                         output = "扫描中…（约 500 组参数，可能要 1 分钟）"
                         let target = bundleID
@@ -216,6 +217,12 @@ struct ContentView: View {
         guard let p = pairingPath else { output = "先配对"; return }
         output = "读取中（搬出 → 读 → 搬回）…"
         Engine.shared.pull(pairing: p, devicePath: readPath) { output = $0 }
+    }
+
+    private func doHA() {
+        guard let p = pairingPath else { output = "先配对"; return }
+        output = "探测 house_arrest（\(bundleID)）…"
+        Engine.shared.haProbe(pairing: p, bundleID: bundleID) { output = $0 }
     }
 
     private func doContainer() {
