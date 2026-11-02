@@ -145,6 +145,7 @@ struct ContentView: View {
         let size = (try? FileManager.default.attributesOfItem(atPath: p)[.size] as? Int) ?? 0
         if size > 0 {
             pairingPath = p
+            pairing.pairingStatus = "已配对（凭据来自本地 / Keychain）"
             output = "已有配对文件：\(p) (\(size) B)"
         }
     }
