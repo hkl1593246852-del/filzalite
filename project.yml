@@ -1,0 +1,35 @@
+name: FilzaLite
+options:
+  bundleIdPrefix: com.research
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+targets:
+  FilzaLite:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - framework: vendor/AirCard/AirliftFFI.xcframework
+        embed: false
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: FilzaLite
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.research.filzalite
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/vendor/AirCard
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - AirliftFFI
