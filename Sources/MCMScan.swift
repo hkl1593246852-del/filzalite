@@ -62,11 +62,12 @@ final class MCMScan {
             log("object_get_path: \(pathHit == nil ? "❌" : "✅ (\(pathHit!.0))")")
 
             guard let create = create, let setClass = setClass, let setFlags = setFlags,
-                  let setPart = setPart, let setIDs = setIDs,
+                  let setIDs = setIDs,
                   let single = singleHit?.1, let getPath = pathHit?.1 else {
                 log("⛔️ 符号不全，扫描中止（把上面几行发我）")
                 return
             }
+            if setPart == nil { log("⚠️ set_part 缺失，跳过 part 维度") }
 
             log("开始扫描 target=\(targetBundle)")
             var hits = 0, tried = 0
@@ -77,7 +78,7 @@ final class MCMScan {
                         guard let q = create() else { continue }
                         setClass(q, cls)
                         setFlags(q, f)
-                        setPart(q, part)
+                        if let sp = setPart { sp(q, part) }
                         let xp = targetBundle.withCString { xpc_string_create($0) }
                         setIDs(q, OpaquePointer(Unmanaged.passUnretained(xp as AnyObject).toOpaque()))
                         guard let obj = single(q), let cp = getPath(obj) else { continue }
