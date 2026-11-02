@@ -60,7 +60,9 @@ final class MCMScan {
                         setFlags(q, flags)
                         setPart(q, part)
                         let xp = targetBundle.withCString { xpc_string_create($0) }
-                        setIDs(q, xp)
+                        if let xpRaw = xp {
+                            setIDs(q, Unmanaged.passUnretained(xpRaw).toOpaque())
+                        }
                         setPartDomain?(q, nil)
 
                         guard let obj = single(q), let cpath = getPath(obj) else { continue }
