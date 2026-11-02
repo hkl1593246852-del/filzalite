@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var pairingPath: String?
     @State private var targetPath = "/var/mobile/Library/SpringBoard"
     @State private var bundleID = "com.apple.PosterBoard"
+    @State private var readPath = "/var/mobile/Library/SpringBoard/IconState.plist"
     @State private var output = ""
     @State private var iface = "—"
     @State private var apps: [AppTarget] = AppTarget.defaults
@@ -79,7 +80,20 @@ struct ContentView: View {
                     }
                 }
 
-                Section(header: Text("4 · 单个 Bundle ID")) {
+                Section(header: Text("4 · 读取（move-out → read → move-back）")) {
+                    Text("⚠️ 目标文件会被临时搬走再搬回，目标 App 正在运行时可能损坏数据")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                    HStack {
+                        TextField("设备文件绝对路径", text: $readPath)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    Button("读取到 App 沙盒") { doPull() }
+                }
+
+                Section(header: Text("5 · 单个 Bundle ID")) {
                     TextField("Bundle ID", text: $bundleID)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -188,6 +202,12 @@ struct ContentView: View {
         }
         output = "写入中：\(name) -> \(targetPath)"
         Engine.shared.writeDir(pairing: p, sourceDir: dir, targetDir: targetPath) { output = $0 }
+    }
+
+    private func doPull() {
+        guard let p = pairingPath else { output = "先配对"; return }
+        output = "读取中（搬出 → 读 → 搬回）…"
+        Engine.shared.pull(pairing: p, devicePath: readPath) { output = $0 }
     }
 
     private func doContainer() {
