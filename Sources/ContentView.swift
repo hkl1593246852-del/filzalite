@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var targetPath = "/var/mobile/Library/SpringBoard"
     @State private var bundleID = "com.apple.PosterBoard"
     @State private var readPath = "/var/mobile/Library/SpringBoard/IconState.plist"
+    @State private var listFilter = "Container"
     @State private var output = ""
     @State private var iface = "—"
     @State private var apps: [AppTarget] = AppTarget.defaults
@@ -91,6 +92,10 @@ struct ContentView: View {
                             .font(.system(size: 10, design: .monospaced))
                     }
                     Button("读取到 App 沙盒") { doPull() }
+                    TextField("过滤关键字（留空显示全部）", text: $listFilter)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .font(.system(size: 11, design: .monospaced))
                     Button("列目录（普通读取）") { doListPlain() }
                 }
 
@@ -111,7 +116,12 @@ struct ContentView: View {
                     }
                 }
 
-                Section(header: Text("输出")) {
+                Section(header: HStack {
+                    Text("输出")
+                    Spacer()
+                    Button("复制") { UIPasteboard.general.string = output }
+                        .font(.caption)
+                }) {
                     Text(output.isEmpty ? "—" : output)
                         .font(.system(size: 11, design: .monospaced))
                 }
@@ -226,9 +236,12 @@ struct ContentView: View {
             output = "列目录失败（沙盒拒绝）：\(p)"
             return
         }
-        let sorted = items.sorted()
+        let key = listFilter.trimmingCharacters(in: .whitespaces)
+        let filtered = key.isEmpty ? items.sorted()
+                                   : items.filter { $0.localizedCaseInsensitiveContains(key) }.sorted()
+        let sorted = filtered
         let head = sorted.prefix(150).joined(separator: "\n")
-        output = "📂 \(p)\n共 \(sorted.count) 项\n\n" + head
+        output = "📂 \(p)\n过滤=\(key.isEmpty ? "(全部)" : key) → \(sorted.count) 项\n\n" + head
         LogBus.shared.append("[list] \(p) -> \(sorted.count) 项")
     }
 
