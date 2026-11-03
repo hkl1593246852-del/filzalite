@@ -108,6 +108,10 @@ struct ContentView: View {
                     HStack {
                         TextField("NTL", text: $ntlValue)
                             .font(.system(size: 11, design: .monospaced))
+                        Button("NTL 扫描") {
+                            output = "扫描中，若设备重启即为命中…"
+                            CrashLab.sweep { output += "\n" + $0 }
+                        }
                         Button("触发 AppleAVE2") {
                             output = "触发中，若设备重启即为成功…"
                             CrashLab.fire(n: Int(ntlValue) ?? 16463) { output += "\n" + $0 }
