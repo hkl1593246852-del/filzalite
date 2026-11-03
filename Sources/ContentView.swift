@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var pairing = PairingController.shared
@@ -9,6 +10,7 @@ struct ContentView: View {
     @State private var bundleID = "com.apple.PosterBoard"
     @State private var readPath = "/var/mobile/Library/SpringBoard/IconState.plist"
     @State private var listFilter = "Container"
+    @State private var showImporter = false
     @State private var chunkOffset = "0"
     @State private var chunkSize = "67108864"
     @State private var output = ""
@@ -78,6 +80,7 @@ struct ContentView: View {
                         .font(.system(.footnote, design: .monospaced))
                     Button("金丝雀测试（只验证可写）") { doCanary() }
                     Button("把测试文件写进该目录") { doWrite() }
+                    Button("导入文件并写入目标目录") { showImporter = true }
                     Button("Respring") {
                         if let p = pairingPath { Engine.shared.respring(pairing: p) }
                     }
@@ -160,6 +163,29 @@ struct ContentView: View {
             .onAppear {
                 loadExisting()
                 refreshIfaces()
+            }
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item]) { result in
+            switch result {
+            case .success(let url):
+                let ok = url.startAccessingSecurityScopedResource()
+                defer { if ok { url.stopAccessingSecurityScopedResource() } }
+                let stage = URL(fileURLWithPath: Engine.shared.stagingDir())
+                let dst = stage.appendingPathComponent(url.lastPathComponent)
+                try? FileManager.default.removeItem(at: dst)
+                do {
+                    try FileManager.default.copyItem(at: url, to: dst)
+                    output = "已导入 \(url.lastPathComponent)（\(dst.fileSizeText)）\n写入目标：\(targetPath)"
+                    if let p = pairingPath {
+                        Engine.shared.writeDir(pairing: p, sourceDir: stage.path, targetDir: targetPath) { output += "\n" + $0 }
+                    } else {
+                        output += "\n（未配对，跳过写入）"
+                    }
+                } catch {
+                    output = "导入失败：\(error.localizedDescription)"
+                }
+            case .failure(let e):
+                output = "选择文件失败：\(e.localizedDescription)"
             }
         }
         .navigationViewStyle(.stack)
@@ -352,5 +378,13 @@ private struct Labeled: View {
     init(_ t: String) { text = t }
     var body: some View {
         Text(text).font(.system(size: 11, design: .monospaced))
+    }
+}
+
+
+extension URL {
+    var fileSizeText: String {
+        let n = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+        return ByteCountFormatter.string(fromByteCount: Int64(n ?? 0), countStyle: .file)
     }
 }
