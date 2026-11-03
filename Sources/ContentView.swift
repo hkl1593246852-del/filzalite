@@ -99,6 +99,7 @@ struct ContentView: View {
                         .disableAutocorrection(true)
                         .font(.system(size: 11, design: .monospaced))
                     Button("列目录（普通读取）") { doListPlain() }
+                    Button("扫子缓存地址范围") { doScanSubcaches() }
                     HStack {
                         TextField("偏移", text: $chunkOffset)
                             .font(.system(size: 11, design: .monospaced))
@@ -232,6 +233,41 @@ struct ContentView: View {
         }
         output = "写入中：\(name) -> \(targetPath)"
         Engine.shared.writeDir(pairing: p, sourceDir: dir, targetDir: targetPath) { output = $0 }
+    }
+
+    private func doScanSubcaches() {
+        let dir = "/System/Cryptexes/OS/System/Library/Caches/com.apple.dyld"
+        var names = ["dyld_shared_cache_arm64e"]
+        for i in 1...77 { names.append(String(format: "dyld_shared_cache_arm64e.%02d", i)) }
+        names.append("dyld_shared_cache_arm64e.25.dylddata")
+        names.append("dyld_shared_cache_arm64e.26.dyldreadonly")
+        names.append("dyld_shared_cache_arm64e.54.dylddata")
+        names.append("dyld_shared_cache_arm64e.55.dyldreadonly")
+        names.append("dyld_shared_cache_arm64e.75.dylddata")
+        names.append("dyld_shared_cache_arm64e.76.dyldreadonly")
+        names.append("dyld_shared_cache_arm64e.77.dyldlinkedit")
+
+        var lines: [String] = []
+        for n in names {
+            let path = dir + "/" + n
+            guard let fh = FileHandle(forReadingAtPath: path) else { continue }
+            let head = fh.readData(ofLength: 0x1000)
+            try? fh.close()
+            guard head.count >= 32, head.prefix(7) == Data("dyld_v1".utf8) else { continue }
+            let mo = head.withUnsafeBytes { $0.load(fromByteOffset: 16, as: UInt32.self) }
+            let mc = head.withUnsafeBytes { $0.load(fromByteOffset: 20, as: UInt32.self) }
+            var lo = UInt64.max, hi: UInt64 = 0
+            for k in 0..<Int(mc) {
+                let o = Int(mo) + k * 32
+                guard o + 24 <= head.count else { continue }
+                let addr = head.withUnsafeBytes { $0.load(fromByteOffset: o, as: UInt64.self) }
+                let size = head.withUnsafeBytes { $0.load(fromByteOffset: o + 8, as: UInt64.self) }
+                lo = min(lo, addr); hi = max(hi, addr + size)
+            }
+            lines.append(String(format: "%@  %#llx..%#llx", n, lo, hi))
+        }
+        output = "子缓存地址范围（\(lines.count) 片）\n\n" + lines.joined(separator: "\n")
+        LogBus.shared.append("[scan] subcaches=\(lines.count)")
     }
 
     private func doChunkRead() {
