@@ -264,8 +264,15 @@ struct ContentView: View {
     }
 
     private func doLZFSE() {
-        guard let raw = FileManager.default.contents(atPath: readPath) else {
-            output = "读不到：\(readPath)"; return
+        var raw = FileManager.default.contents(atPath: readPath)
+        if raw == nil {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let guess = docs.appendingPathComponent((readPath as NSString).lastPathComponent)
+            raw = FileManager.default.contents(atPath: guess.path)
+            LogBus.shared.append("[lzfse] fallback -> \(guess.path)")
+        }
+        guard let raw = raw else {
+            output = "读不到：\(readPath)（Documents 里也没有同名文件）"; return
         }
         var payload = raw
         if let r = raw.range(of: Data("IM4P".utf8)), r.lowerBound < 64 {
