@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var bundleID = "com.apple.PosterBoard"
     @State private var readPath = "/var/mobile/Library/SpringBoard/IconState.plist"
     @State private var listFilter = "Container"
+    @State private var chunkOffset = "0"
+    @State private var chunkSize = "67108864"
     @State private var output = ""
     @State private var iface = "—"
     @State private var apps: [AppTarget] = AppTarget.defaults
@@ -97,6 +99,13 @@ struct ContentView: View {
                         .disableAutocorrection(true)
                         .font(.system(size: 11, design: .monospaced))
                     Button("列目录（普通读取）") { doListPlain() }
+                    HStack {
+                        TextField("偏移", text: $chunkOffset)
+                            .font(.system(size: 11, design: .monospaced))
+                        TextField("长度", text: $chunkSize)
+                            .font(.system(size: 11, design: .monospaced))
+                        Button("分段读取") { doChunkRead() }
+                    }
                 }
 
                 Section(header: Text("5 · 单个 Bundle ID")) {
@@ -223,6 +232,30 @@ struct ContentView: View {
         }
         output = "写入中：\(name) -> \(targetPath)"
         Engine.shared.writeDir(pairing: p, sourceDir: dir, targetDir: targetPath) { output = $0 }
+    }
+
+    private func doChunkRead() {
+        let path = readPath
+        guard let off = Int64(chunkOffset), let len = Int(chunkSize), len > 0 else {
+            output = "偏移/长度格式不对"; return
+        }
+        guard let fh = FileHandle(forReadingAtPath: path) else {
+            output = "打不开：\(path)"; return
+        }
+        defer { try? fh.close() }
+        do {
+            try fh.seek(toOffset: UInt64(off))
+            let data = fh.readData(ofLength: len)
+            guard !data.isEmpty else { output = "读到 0 字节（偏移越界？）"; return }
+            let name = (path as NSString).lastPathComponent + ".part\(off)"
+            let dest = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(name)
+            try data.write(to: dest)
+            output = "✅ 分段读取 \(data.count) 字节 @ \(off)\n本地：\(name)"
+            LogBus.shared.append("[chunk] \(path) @\(off) -> \(data.count) B")
+        } catch {
+            output = "分段读取失败：\(error.localizedDescription)"
+        }
     }
 
     private func doListPlain() {
