@@ -91,6 +91,7 @@ struct ContentView: View {
                             .font(.system(size: 10, design: .monospaced))
                     }
                     Button("读取到 App 沙盒") { doPull() }
+                    Button("列目录（普通读取）") { doListPlain() }
                 }
 
                 Section(header: Text("5 · 单个 Bundle ID")) {
@@ -212,6 +213,23 @@ struct ContentView: View {
         }
         output = "写入中：\(name) -> \(targetPath)"
         Engine.shared.writeDir(pairing: p, sourceDir: dir, targetDir: targetPath) { output = $0 }
+    }
+
+    private func doListPlain() {
+        let p = readPath
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue else {
+            output = "路径不存在或不是目录：\(p)"
+            return
+        }
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: p) else {
+            output = "列目录失败（沙盒拒绝）：\(p)"
+            return
+        }
+        let sorted = items.sorted()
+        let head = sorted.prefix(150).joined(separator: "\n")
+        output = "📂 \(p)\n共 \(sorted.count) 项\n\n" + head
+        LogBus.shared.append("[list] \(p) -> \(sorted.count) 项")
     }
 
     private func doPull() {
