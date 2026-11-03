@@ -177,6 +177,18 @@ final class Engine {
         let name = (devicePath as NSString).lastPathComponent
         let dest = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(name.isEmpty ? "pulled.bin" : name)
+        // 快路径：沙盒允许读的系统路径，直接拷（不触发 AirTraffic）
+        if let data = FileManager.default.contents(atPath: devicePath), data.count > 0 {
+            try? data.write(to: dest)
+            LogBus.shared.append("[plain] 直读 \(data.count) B: \(devicePath)")
+            var m = "✅ 直接读取成功（未走逃逸）\n\(data.count) 字节\n本地文件：\(dest.path)"
+            if data.count < 4096, let t = String(data: data, encoding: .utf8) {
+                m += "\n\n预览：\n" + String(t.prefix(800))
+            }
+            done(m)
+            return
+        }
+
         let cb: CLogCB = { _, msg in
             guard let msg = msg else { return }
             LogBus.shared.append(String(cString: msg))
