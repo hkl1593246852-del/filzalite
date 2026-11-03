@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var readPath = "/var/mobile/Library/SpringBoard/IconState.plist"
     @State private var listFilter = "Container"
     @State private var showImporter = false
+    @State private var ntlValue = "16463"
     @State private var chunkOffset = "0"
     @State private var chunkSize = "67108864"
     @State private var output = ""
@@ -104,6 +105,14 @@ struct ContentView: View {
                         .font(.system(size: 11, design: .monospaced))
                     Button("列目录（普通读取）") { doListPlain() }
                     Button("扫子缓存地址范围") { doScanSubcaches() }
+                    HStack {
+                        TextField("NTL", text: $ntlValue)
+                            .font(.system(size: 11, design: .monospaced))
+                        Button("触发 AppleAVE2") {
+                            output = "触发中，若设备重启即为成功…"
+                            CrashLab.fire(n: Int(ntlValue) ?? 16463) { output += "\n" + $0 }
+                        }
+                    }
                     HStack {
                         TextField("偏移", text: $chunkOffset)
                             .font(.system(size: 11, design: .monospaced))
