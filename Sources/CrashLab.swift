@@ -54,4 +54,43 @@ enum CrashLab {
         VTCompressionSessionCompleteFrames(s, untilPresentationTimeStamp: .invalid)
         log("NTL = \(n) 完成，未崩溃")
     }
+
+    /// 扫一遍候选阈值：每个值独立开会话，返回值全部记录。
+    /// 中途设备重启即代表命中。
+    static func sweep(log: @escaping (String) -> Void) {
+        let values: [Int] = [16463, 16464, 20000, 30000, 65535, 100000,
+                             200000, 500000, 1000000, 2000000]
+        log("开始扫描 \(values.count) 个 NTL 值")
+        for n in values {
+            var session: VTCompressionSession?
+            let st = VTCompressionSessionCreate(
+                allocator: kCFAllocatorDefault, width: 3840, height: 2160,
+                codecType: kCMVideoCodecType_HEVC,
+                encoderSpecification: nil, imageBufferAttributes: nil,
+                compressedDataAllocator: nil, outputCallback: nil, refcon: nil,
+                compressionSessionOut: &session)
+            guard st == noErr, let s = session else {
+                log("  N=\(n) create=\(st)"); continue
+            }
+            let key = "NumberOfTemporalLayers" as CFString
+            let setSt = VTSessionSetProperty(s, key: key, value: NSNumber(value: n) as CFTypeRef)
+            var pix: CVPixelBuffer?
+            CVPixelBufferCreate(kCFAllocatorDefault, 3840, 2160,
+                                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                                [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary,
+                                &pix)
+            var flags = VTEncodeInfoFlags()
+            var encSt = OSStatus(-1)
+            if let pb = pix {
+                encSt = VTCompressionSessionEncodeFrame(
+                    s, imageBuffer: pb,
+                    presentationTimeStamp: CMTime(value: 0, timescale: 30),
+                    duration: CMTime(value: 1, timescale: 30),
+                    frameProperties: nil, infoFlagsOut: &flags) { _, _, _ in }
+            }
+            VTCompressionSessionCompleteFrames(s, untilPresentationTimeStamp: .invalid)
+            log("  N=\(n) set=\(setSt) enc=\(encSt) 未崩")
+        }
+        log("扫描结束，全程未崩")
+    }
 }
