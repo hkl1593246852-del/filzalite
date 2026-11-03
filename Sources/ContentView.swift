@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Compression
 
 struct ContentView: View {
     @StateObject private var pairing = PairingController.shared
@@ -109,6 +110,7 @@ struct ContentView: View {
                         TextField("长度", text: $chunkSize)
                             .font(.system(size: 11, design: .monospaced))
                         Button("分段读取") { doChunkRead() }
+                        Button("LZFSE 解压") { doLZFSE() }
                     }
                 }
 
@@ -259,6 +261,54 @@ struct ContentView: View {
         }
         output = "写入中：\(name) -> \(targetPath)"
         Engine.shared.writeDir(pairing: p, sourceDir: dir, targetDir: targetPath) { output = $0 }
+    }
+
+    private func doLZFSE() {
+        guard let raw = FileManager.default.contents(atPath: readPath) else {
+            output = "读不到：\(readPath)"; return
+        }
+        var payload = raw
+        if let r = raw.range(of: Data("IM4P".utf8)), r.lowerBound < 64 {
+            let start = r.lowerBound
+            var p = start + 4
+            for _ in 0..<3 {
+                guard p + 2 <= raw.count else { break }
+                let tag = raw[p], ln = raw[p+1]
+                p += 2
+                if ln & 0x80 != 0 {
+                    let n = Int(ln & 0x7F)
+                    guard p + n <= raw.count else { break }
+                    let size = raw[p..<(p+n)].reduce(0) { ($0 << 8) | Int($1) }
+                    p += n
+                    if tag == 0x04 && size > 1000 { payload = raw.subdata(in: p..<min(p+size, raw.count)); break }
+                } else {
+                    if tag == 0x04 && ln > 200 { payload = raw.subdata(in: p..<min(p+Int(ln), raw.count)); break }
+                    p += Int(ln)
+                }
+            }
+        }
+        var size = max(payload.count * 4, 1 << 22)
+        for _ in 0..<8 {
+            var out = Data(count: size)
+            let n = out.withUnsafeMutableBytes { dst -> Int in
+                payload.withUnsafeBytes { src -> Int in
+                    guard let d = dst.bindMemory(to: UInt8.self).baseAddress,
+                          let s = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                    return compression_decode_buffer(d, size, s, payload.count, nil, COMPRESSION_LZFSE)
+                }
+            }
+            if n > 0 {
+                out = out.prefix(n)
+                let name = (readPath as NSString).lastPathComponent + ".dec"
+                let dest = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
+                try? out.write(to: dest)
+                output = "✅ 解压成功\n输入 \(payload.count) B → 输出 \(n) B\n本地：\(name)"
+                LogBus.shared.append("[lzfse] \(readPath) -> \(n) B")
+                return
+            }
+            size *= 2
+        }
+        output = "LZFSE 解压失败（输出缓冲反复放大后仍返回 0）"
     }
 
     private func doScanSubcaches() {
